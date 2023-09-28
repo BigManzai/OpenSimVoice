@@ -30,27 +30,25 @@ using OpenSim.Server.Base;
 using OpenSim.Services.Interfaces;
 using OSDMap = OpenMetaverse.StructuredData.OSDMap;
 
-//namespace TCPServerVoice
+// Namespace where the class belongs
 namespace OpenSim.Region.OptionalModules.Avatar.Voice.TCPServerVoice
 {
+    // TCPClient class for handling TCP connections
     public class TCPClient
     {
-        /// <summary>
-        /// Konstruktor
-        /// </summary>
+        // Constructor that takes a server address and port
         public TCPClient(String server, int port)
         {
-            //Daten setzen
             this.m_Server = server;
             this.m_Port = port;
 
-            //Events anhängen
+            // Event handlers for various events
             this.ExceptionAppeared += new DelegateException(this.OnExceptionAppeared);
             this.ClientConnected += new DelegateConnection(this.OnConnected);
             this.ClientDisconnected += new DelegateConnection(this.OnDisconnected);
         }
 
-        //Attribute
+        // TCP client variables
         public TcpClient Client;
         NetworkStream m_NetStream;
         byte[] m_ByteBuffer;
@@ -60,25 +58,19 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.TCPServerVoice
         private System.Threading.Timer m_TimerAutoConnect;
         private int m_AutoConnectInterval = 10;
 
-        /// <summary>
-        /// ToString
-        /// </summary>
-        /// <returns></returns>
+        // Override ToString method to provide a custom string representation
         public override string ToString()
         {
             return String.Format("{0} {1}:{2}", this.GetType(), this.m_Server, this.m_Port);
         }
 
-        /// <summary>
-        /// Locker Klasse für AutoConnect
-        /// </summary>
+        // Private class for managing auto-connect locking
         private class Locker_AutoConnectClass
         {
         }
         private Locker_AutoConnectClass Locker_AutoConnect = new Locker_AutoConnectClass();
 
-
-        //Delegates bzw. Events
+        // Delegates and events for various TCP client events
         public delegate void DelegateDataReceived(TCPServerVoice.TCPClient client, Byte[] bytes);
         public delegate void DelegateDataSend(TCPServerVoice.TCPClient client, Byte[] bytes);
         public delegate void DelegateDataReceivedComplete(TCPServerVoice.TCPClient client, String message);
@@ -90,35 +82,29 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.TCPServerVoice
         public event DelegateConnection ClientDisconnected;
         public event DelegateException ExceptionAppeared;
 
-        /// <summary>
-        /// Timer für AutoConnect initialisieren
-        /// </summary>
+        // Initialize the auto-connect timer
         private void InitTimerAutoConnect()
         {
-            //Wenn AutoConnect
             if (m_AutoConnect)
             {
                 if (m_TimerAutoConnect == null)
                 {
                     if (m_AutoConnectInterval > 0)
                     {
+                        // Create and start the auto-connect timer
                         m_TimerAutoConnect = new System.Threading.Timer(new System.Threading.TimerCallback(OnTimer_AutoConnect), null, m_AutoConnectInterval * 1000, m_AutoConnectInterval * 1000);
                     }
                 }
             }
         }
-        /// <summary>
-        /// Daten senden
-        /// </summary>
-        /// <param name="Data"></param>
+
+        // Send data over the TCP connection
         public void Send(Byte[] data)
         {
             try
             {
-                // Sende den kodierten string an den m_Server
                 m_NetStream.Write(data, 0, data.Length);
 
-                //Event abschicken
                 if (this.DataSend != null)
                 {
                     this.DataSend(this, data);
@@ -126,14 +112,11 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.TCPServerVoice
             }
             catch (Exception ex)
             {
-                //Exception Event abschicken
                 ExceptionAppeared(this, ex);
             }
         }
-        /// <summary>
-        /// Startet das Lesen 
-        /// </summary>
-        /// <param name="Data"></param>
+
+        // Start reading data from the TCP connection
         private void StartReading()
         {
             try
@@ -143,50 +126,38 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.TCPServerVoice
             }
             catch (Exception ex)
             {
-                //Exception Event abschicken
                 ExceptionAppeared(this, ex);
             }
         }
-        /// <summary>
-        /// Wird aufgerufen wenn Daten erhalten wurden
-        /// </summary>
-        /// <param name="result"></param>
+
+        // Callback for handling data received from the TCP connection
         private void OnDataReceived(IAsyncResult ar)
         {
             try
             {
-                //Netzwerkstream ermitteln
                 NetworkStream myNetworkStream = (NetworkStream)ar.AsyncState;
 
-                //Networkstream prüfen
                 if (myNetworkStream.CanRead)
                 {
-                    //Daten lesen
                     int numberOfBytesRead = myNetworkStream.EndRead(ar);
 
-                    //Wenn Daten vorhanden
                     if (numberOfBytesRead > 0)
                     {
-                        //Event abschicken
                         if (this.DataReceived != null)
                         {
-                            //Nur gelesene Bytes ermitteln
                             Byte[] data = new byte[numberOfBytesRead];
                             System.Array.Copy(m_ByteBuffer, 0, data, 0, numberOfBytesRead);
 
-                            //Abschicken
                             this.DataReceived(this, data);
                         }
                     }
                     else
                     {
-                        //Event abschicken
                         if (this.ClientDisconnected != null)
                         {
                             this.ClientDisconnected(this, "FIN");
                         }
 
-                        //Wenn kein AutoConnect
                         if (m_AutoConnect == false)
                         {
                             this.disconnect_intern();
@@ -196,90 +167,69 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.TCPServerVoice
                             this.Disconnect_ButAutoConnect();
                         }
 
-                        //Fertig
                         return;
                     }
 
-                    //Neuer Lesevorgang
                     myNetworkStream.BeginRead(m_ByteBuffer, 0, m_ByteBuffer.Length, new AsyncCallback(OnDataReceived), myNetworkStream);
                 }
             }
             catch (Exception ex)
             {
-                //Exception Event abschicken
                 ExceptionAppeared(this, ex);
             }
         }
-        /// <summary>
-        /// Neu Verbinden
-        /// </summary>
+
+        // Reconnect to the server
         public void ReConnect()
         {
-            //Verbindung beenden
             this.Disconnect();
-            //Neue Verbindung starten
             this.Connect();
         }
-        /// <summary>
-        /// Verbindung aufbauen
-        /// </summary>
+
+        // Connect to the server
         public void Connect()
         {
             try
             {
-                //Evtl. AutoConnect aktivieren
                 InitTimerAutoConnect();
 
-                // Erzeuge neuen Socket der an den m_Server und m_Port gebunden ist
                 Client = new TcpClient(this.m_Server, this.m_Port);
                 m_NetStream = Client.GetStream();
 
-                //Beginn zu lesen
                 this.StartReading();
 
-                //Event abschicken
                 ClientConnected(this, String.Format("server: {0} port: {1}", this.m_Server, this.m_Port));
             }
             catch (Exception ex)
             {
-                //Weiterleiten
                 throw ex;
             }
         }
 
-        /// <summary>
-        /// Verbindung beenden
-        /// </summary>
+        // Disconnect from the server
         public void Disconnect()
         {
-            //Verbindung beenden
             disconnect_intern();
 
-            //Wenn nicht schon beendet
             if (m_TimerAutoConnect != null)
             {
-                //Nicht mehr wiederverbinden
                 m_TimerAutoConnect.Dispose();
                 m_TimerAutoConnect = null;
             }
 
-            //Event abschicken
             if (this.ClientDisconnected != null)
             {
                 this.ClientDisconnected(this, "Verbindung beendet");
             }
         }
-        /// <summary>
-        /// Verbindung beenden, aber AutoConnect beibehalten
-        /// </summary>
+
+        // Disconnect from the server without affecting auto-connect
         private void Disconnect_ButAutoConnect()
         {
-            //Verbindung beenden
             disconnect_intern();
         }
-        /// <summary>
-        /// Verbindung beenden (intern)
-        /// </summary>
+
+        // Internal method to handle disconnection
         private void disconnect_intern()
         {
             if (Client != null)
@@ -291,30 +241,23 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.TCPServerVoice
                 m_NetStream.Close();
             }
         }
-        /// <summary>
-        /// Timer der das automatische Verbinden steuert
-        /// </summary>
-        /// <param name="ob"></param>
+
+        // Timer callback for auto-reconnect
         private void OnTimer_AutoConnect(Object ob)
         {
             try
             {
                 lock (Locker_AutoConnect)
                 {
-                    //Wenn gewünscht
                     if (m_AutoConnect)
                     {
-                        //Wenn nicht verbunden
                         if (Client == null || Client.Connected == false)
                         {
-                            //Erzeuge neuen Socket der an den m_Server und m_Port gebunden ist
                             Client = new TcpClient(this.m_Server, this.m_Port);
                             m_NetStream = Client.GetStream();
 
-                            //Beginn zu lesen
                             this.StartReading();
 
-                            //Event abschicken
                             ClientConnected(this, String.Format("server: {0} port: {1}", this.m_Server, this.m_Port));
                         }
                     }
@@ -322,7 +265,6 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.TCPServerVoice
                     {
                         if (m_TimerAutoConnect != null)
                         {
-                            //Timer beenden
                             m_TimerAutoConnect.Dispose();
                             m_TimerAutoConnect = null;
                         }
@@ -331,37 +273,29 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.TCPServerVoice
             }
             catch (Exception ex)
             {
-                //Exception Event abschicken
                 ExceptionAppeared(this, ex);
             }
         }
-        /// <summary>
-        /// Wenn eine Exception passiert
-        /// </summary>
-        /// <param name="ex"></param>
+
+        // Event handler for exception occurrence
         private void OnExceptionAppeared(TCPServerVoice.TCPClient client, Exception ex)
         {
 
         }
-        /// <summary>
-        /// Wenn sich ein Client verbunden hat
-        /// </summary>
-        /// <param name="client"></param>
+
+        // Event handler for client connection
         private void OnConnected(TCPServerVoice.TCPClient client, string iTCPServerVoiceo)
         {
 
         }
-        /// <summary>
-        /// Wenn sich ein Client getrennt hat
-        /// </summary>
-        /// <param name="client"></param>
+
+        // Event handler for client disconnection
         private void OnDisconnected(TCPServerVoice.TCPClient client, string iTCPServerVoiceo)
         {
 
         }
-        /// <summary>
-        /// Interval für AutoConnect in Sekunden
-        /// </summary>
+
+        // Property to get or set the auto-connect interval
         public Int32 AutoConnectInterval
         {
             get
@@ -372,15 +306,12 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.TCPServerVoice
             {
                 m_AutoConnectInterval = value;
 
-                //Prüfen
                 if (value > 0)
                 {
                     try
                     {
-                        //Wenn schnon aktiv
                         if (m_TimerAutoConnect != null)
                         {
-                            //Ändern
                             m_TimerAutoConnect.Change(value * 1000, value * 1000);
                         }
                     }
@@ -391,10 +322,8 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.TCPServerVoice
                 }
             }
         }
-        /// <summary>
-        /// Regelt die Automatische Wiederverbindung
-        /// </summary>
-        /// <returns></returns>
+
+        // Property to get or set the auto-connect status
         public bool AutoConnect
         {
             get
@@ -412,9 +341,8 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.TCPServerVoice
 
             }
         }
-        /// <summary>
-        /// Gibt an ob der Client versucht sich über AutoConnect zu verbinden
-        /// </summary>
+
+        // Property to check if the auto-connect timer is running
         public bool IsRunning
         {
             get
@@ -422,10 +350,8 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.TCPServerVoice
                 return m_TimerAutoConnect != null;
             }
         }
-        /// <summary>
-        /// Gibt an ob der Client verbunden ist. Readonly
-        /// </summary>
-        /// <returns></returns>
+
+        // Property to check if the client is connected
         public bool Connected
         {
             get
